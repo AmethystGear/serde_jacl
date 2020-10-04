@@ -100,6 +100,7 @@ pub fn from_str<'a, T>(s: &'a str) -> Result<T, JaclDeError>
 where
     T: Deserialize<'a>,
 {
+    println!("call from str");
     let mut deserializer = Deserializer::from_str(s);
     let t = T::deserialize(&mut deserializer)?;
     if deserializer.input.is_empty() {
@@ -138,13 +139,14 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_int<T: Integer + FromStr>(&mut self) -> Result<T, JaclDeError> {
+        println!("parse int {}", self.input);
         self.skip_non_tokens()?;
         let v = match parsing::literal::integer(self.input) {
             Ok((inp, i)) => {
                 self.input = inp;
                 Ok(i)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => {println!("err"); Err(JaclDeError)},
         };
         self.skip_non_tokens()?;
         return v;
@@ -216,16 +218,45 @@ impl<'de> Deserializer<'de> {
         self.skip_non_tokens()?;
         return v;
     }
+
+    fn next_char(&self) -> Result<char, JaclDeError> {
+        if let Some(pre) = self.pre {
+            return Ok(pre);
+        }
+        if let Some(next) = self.input.chars().next() {
+            return Ok(next);
+        }
+        if let Some(post) = self.post {
+            return Ok(post);
+        }
+        return Err(JaclDeError);
+    }
 }
 
 impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     type Error = JaclDeError;
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, JaclDeError>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, JaclDeError>
     where
         V: Visitor<'de>,
     {
-        return Err(JaclDeError);
+        match self.next_char()? {
+            'n' => self.deserialize_unit(visitor),
+            't' | 'f' => self.deserialize_bool(visitor),
+            '"' => self.deserialize_str(visitor),
+            '-' | '0'..='9' => {
+                println!("here {}", self.input);
+                if let Ok(_) = parsing::literal::float::<f64>(self.input) {
+                    self.deserialize_f64(visitor)
+                } else {             
+                    self.deserialize_i64(visitor)
+                }
+            },
+            '[' => self.deserialize_seq(visitor),
+            '{' => self.deserialize_map(visitor),
+            '(' => self.deserialize_struct("", &[""], visitor),
+            _ => Err(JaclDeError),
+        }
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, JaclDeError>
@@ -260,6 +291,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        println!("visit i64");
         visitor.visit_i64(self.parse_int()?)
     }
 
@@ -302,7 +334,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f32(self.parse_float()?)
+        println!("visit f64");
+        visitor.visit_f64(self.parse_float()?)
     }
 
     fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, JaclDeError>
@@ -660,15 +693,18 @@ fn test_literals() {
     // no whitespace
     assert_eq!(true, from_str::<bool>("true").unwrap());
     assert_eq!(1u8, from_str::<u8>("1").unwrap());
+    assert_eq!(1.0, from_str::<f64>("1.0").unwrap());
     assert_eq!("test", from_str::<String>(r#""test""#).unwrap());
 
     // with whitespace on back
     assert_eq!(true, from_str::<bool>("true      ").unwrap());
     assert_eq!(1u8, from_str::<u8>("1      ").unwrap());
+    assert_eq!(1.0, from_str::<f64>("1.0      ").unwrap());
     assert_eq!("test", from_str::<String>(r#""test"   "#).unwrap());
 
     // whitespace front and back
     assert_eq!(true, from_str::<bool>("     true   ").unwrap());
+    assert_eq!(1.0, from_str::<f64>("   1.0  ").unwrap());
     assert_eq!(1u8, from_str::<u8>("   \n1   ").unwrap());
     assert_eq!(
         "test",
