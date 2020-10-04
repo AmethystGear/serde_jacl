@@ -144,9 +144,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(i)
             }
-            Err(_) => {
-                Err(JaclDeError)
-            }
+            Err(_) => Err(JaclDeError),
         };
         self.skip_non_tokens()?;
         return v;
