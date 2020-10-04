@@ -1,4 +1,7 @@
-use serde::{Deserializer, Deserialize, de::{self, Visitor}};
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer,
+};
 use std::fmt;
 
 #[cfg(test)]
@@ -7,13 +10,14 @@ use crate::de::from_str;
 #[derive(Debug, PartialEq)]
 pub enum Number {
     Integer(i64),
-    Float(f64)
+    Float(f64),
 }
 
 impl<'de> Deserialize<'de> for Number {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-            D: Deserializer<'de> {
+        D: Deserializer<'de>,
+    {
         println!("call deser any");
         deserializer.deserialize_any(NumberVisitor)
     }
@@ -91,13 +95,15 @@ impl<'de> Visitor<'de> for NumberVisitor {
 
     fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
     where
-            E: de::Error, {
+        E: de::Error,
+    {
         Ok(Number::Float(v as f64))
     }
 
     fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
     where
-            E: de::Error, {
+        E: de::Error,
+    {
         println!("visit_f64");
         Ok(Number::Float(v))
     }

@@ -146,7 +146,10 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(i)
             }
-            Err(_) => {println!("err"); Err(JaclDeError)},
+            Err(_) => {
+                println!("err");
+                Err(JaclDeError)
+            }
         };
         self.skip_non_tokens()?;
         return v;
@@ -248,10 +251,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                 println!("here {}", self.input);
                 if let Ok(_) = parsing::literal::float::<f64>(self.input) {
                     self.deserialize_f64(visitor)
-                } else {             
+                } else {
                     self.deserialize_i64(visitor)
                 }
-            },
+            }
             '[' => self.deserialize_seq(visitor),
             '{' => self.deserialize_map(visitor),
             '(' => self.deserialize_struct("", &[""], visitor),
