@@ -1,7 +1,7 @@
 use std::{error, fmt::Display, str::FromStr};
 
 use crate::parsing;
-use nom::{branch::{alt, permutation}, combinator::opt, multi::{many0, many1}};
+use nom::{branch::alt, multi::many0};
 use num::{Float, Integer};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -72,8 +72,6 @@ impl<'de> Deserializer<'de> {
                 post: Some(')'),
             };
         }
-
-        println!("None");
         return Deserializer {
             pre: None,
             input,
@@ -167,22 +165,17 @@ impl<'de> Deserializer<'de> {
 
     fn parse_string(&mut self) -> Result<String, JaclDeError> {
         self.skip_non_tokens()?;
-        println!("*{}*", self.input);
         let v = match parsing::string::string(self.input) {
             Ok((inp, st)) => match st {
                 Ok(s) => {
                     self.input = inp;
-                    println!("success '{}'", s);
-                    println!("new inp '{}'", self.input);
                     Ok(s)
                 }
                 Err(_) => {
-                    println!("unescape failure");
                     Err(JaclDeError)
                 }
             },
             Err(_) => {
-                println!("string parse failure");
                 Err(JaclDeError)
             }
         };
@@ -335,7 +328,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("call");
         visitor.visit_string(self.parse_string()?)
     }
 

@@ -7,7 +7,6 @@ fn parse_string<'a>(input: &'a str) -> Result<(&'a str, String), Box<dyn Error>>
     let mut s = "".to_string();
     for (i, c) in input.char_indices() {
         if c != '"' && first {
-            println!("not a string ^{}^", input);
             return Err("not a string".into());
         } else if c == '\\' && !escp {
             escp = true;
@@ -27,7 +26,6 @@ fn parse_string<'a>(input: &'a str) -> Result<(&'a str, String), Box<dyn Error>>
         }
         first = false;
     }
-    println!("unclosed string ^{}^", input);
     return Err("unclosed string".into());
 }
 
