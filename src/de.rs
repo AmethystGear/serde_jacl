@@ -171,13 +171,9 @@ impl<'de> Deserializer<'de> {
                     self.input = inp;
                     Ok(s)
                 }
-                Err(_) => {
-                    Err(JaclDeError)
-                }
+                Err(_) => Err(JaclDeError),
             },
-            Err(_) => {
-                Err(JaclDeError)
-            }
+            Err(_) => Err(JaclDeError),
         };
         self.skip_non_tokens()?;
         return v;
@@ -588,6 +584,7 @@ fn test_struct() {
         int: u32,
         vec: Vec<String>,
         map: HashMap<String, Test>,
+        underscore_test: u8,
     }
 
     let j = r#"
@@ -600,14 +597,17 @@ fn test_struct() {
                         vec : ["hello",,,,,   
                                     "world",,, ]
                         map: {}
+                        underscore_test: 1
                     )
                 }
+                underscore_test: 1
             )"#;
     let vec = vec!["hello".to_string(), "world".to_string()];
     let inner = Test {
         int: 17,
         vec: vec.clone(),
         map: HashMap::new(),
+        underscore_test: 1,
     };
     let mut map = HashMap::new();
     map.insert("hello".to_string(), inner);
@@ -615,6 +615,7 @@ fn test_struct() {
         int: 1,
         vec: vec.clone(),
         map,
+        underscore_test: 1,
     };
     assert_eq!(expected, from_str(j).unwrap());
 }
@@ -669,12 +670,20 @@ fn test_literals() {
     // whitespace front and back
     assert_eq!(true, from_str::<bool>("     true   ").unwrap());
     assert_eq!(1u8, from_str::<u8>("   \n1   ").unwrap());
-    assert_eq!("test", from_str::<String>(r#"   "test"   ,,,,,,,,,,,"#).unwrap());
+    assert_eq!(
+        "test",
+        from_str::<String>(r#"   "test"   ,,,,,,,,,,,"#).unwrap()
+    );
 
     // multiline string literal
-    assert_eq!("test\ntest\n", from_str::<String>(r#"
+    assert_eq!(
+        "test\ntest\n",
+        from_str::<String>(
+            r#"
 "test
 test
-""#).unwrap());
+""#
+        )
+        .unwrap()
+    );
 }
-

@@ -11,7 +11,7 @@ fn parse_string<'a>(input: &'a str) -> Result<(&'a str, String), Box<dyn Error>>
         } else if c == '\\' && !escp {
             escp = true;
         } else if c == '"' && !escp && !first {
-            return Ok((&input[(i+1)..input.len()], s));
+            return Ok((&input[(i + 1)..input.len()], s));
         } else if !c.is_whitespace() {
             escp = false;
         }
@@ -22,7 +22,7 @@ fn parse_string<'a>(input: &'a str) -> Result<(&'a str, String), Box<dyn Error>>
                 s += "\\r";
             } else {
                 s += &format!("{}", c);
-            }            
+            }
         }
         first = false;
     }
