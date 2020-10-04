@@ -5,9 +5,8 @@ pub mod string;
 use nom::{
     character::complete::{alpha1, alphanumeric0, one_of},
     combinator::{recognize, value},
-    multi::many1,
     sequence::pair,
-    IResult,
+    IResult, multi::many1,
 };
 
 pub fn delimiter<'a>(input: &'a str) -> IResult<&'a str, char> {
@@ -19,5 +18,5 @@ pub fn identifier<'a>(input: &'a str) -> IResult<&'a str, &'a str> {
 }
 
 pub fn whitespace<'a>(input: &'a str) -> IResult<&'a str, ()> {
-    return value((), many1(one_of(" ,\n\t")))(input);
+    return value((), many1(one_of(" ,\r\n\t")))(input);
 }

@@ -1,7 +1,7 @@
 use std::{error, fmt::Display, str::FromStr};
 
 use crate::parsing;
-use nom::{branch::permutation, combinator::opt};
+use nom::{branch::{alt, permutation}, combinator::opt, multi::{many0, many1}};
 use num::{Float, Integer};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -51,7 +51,6 @@ impl<'de> Deserializer<'de> {
         };
         if d.try_parse_literal() {
             if d.try_parse_literal() {
-                println!("here {}", input);
                 return Deserializer {
                     pre: Some('['),
                     input,
@@ -74,6 +73,7 @@ impl<'de> Deserializer<'de> {
             };
         }
 
+        println!("None");
         return Deserializer {
             pre: None,
             input,
@@ -116,63 +116,78 @@ impl<'de> Deserializer<'de> {
         if self.pre.is_some() {
             return Err(JaclDeError);
         }
-        self.input = permutation((
-            opt(parsing::comment::multiline_comment),
-            opt(parsing::comment::eol_comment),
-            opt(parsing::whitespace),
-        ))(self.input)
-        .unwrap_or((self.input, (Some(()), Some(()), Some(()))))
+        self.input = many0(alt((
+            parsing::comment::multiline_comment,
+            parsing::comment::eol_comment,
+            parsing::whitespace,
+        )))(self.input)
+        .unwrap_or((self.input, vec![]))
         .0;
         return Ok(());
     }
 
     fn parse_bool(&mut self) -> Result<bool, JaclDeError> {
         self.skip_non_tokens()?;
-        match parsing::literal::boolean(self.input) {
+        let v = match parsing::literal::boolean(self.input) {
             Ok((inp, b)) => {
                 self.input = inp;
-                return Ok(b);
+                Ok(b)
             }
             Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_int<T: Integer + FromStr>(&mut self) -> Result<T, JaclDeError> {
         self.skip_non_tokens()?;
-        match parsing::literal::integer(self.input) {
+        let v = match parsing::literal::integer(self.input) {
             Ok((inp, i)) => {
                 self.input = inp;
-                return Ok(i);
+                Ok(i)
             }
             Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_float<T: Float + FromStr>(&mut self) -> Result<T, JaclDeError> {
         self.skip_non_tokens()?;
-        match parsing::literal::float(self.input) {
+        let v = match parsing::literal::float(self.input) {
             Ok((inp, f)) => {
                 self.input = inp;
-                return Ok(f);
+                Ok(f)
             }
             Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_string(&mut self) -> Result<String, JaclDeError> {
         self.skip_non_tokens()?;
-        match parsing::string::string(self.input) {
-            Ok((inp, st)) => {
-                return match st {
-                    Ok(s) => {
-                        self.input = inp;
-                        return Ok(s);
-                    }
-                    Err(_) => Err(JaclDeError),
+        println!("*{}*", self.input);
+        let v = match parsing::string::string(self.input) {
+            Ok((inp, st)) => match st {
+                Ok(s) => {
+                    self.input = inp;
+                    println!("success '{}'", s);
+                    println!("new inp '{}'", self.input);
+                    Ok(s)
                 }
+                Err(_) => {
+                    println!("unescape failure");
+                    Err(JaclDeError)
+                }
+            },
+            Err(_) => {
+                println!("string parse failure");
+                Err(JaclDeError)
             }
-            Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_delim(&mut self) -> Result<char, JaclDeError> {
@@ -189,24 +204,28 @@ impl<'de> Deserializer<'de> {
                 return Err(JaclDeError);
             }
         }
-        match parsing::delimiter(self.input) {
+        let v = match parsing::delimiter(self.input) {
             Ok((inp, c)) => {
                 self.input = inp;
-                return Ok(c);
+                Ok(c)
             }
             Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_identifier(&mut self) -> Result<&str, JaclDeError> {
         self.skip_non_tokens()?;
-        match parsing::identifier(self.input) {
+        let v = match parsing::identifier(self.input) {
             Ok((inp, s)) => {
                 self.input = inp;
-                return Ok(s);
+                Ok(s)
             }
             Err(_) => Err(JaclDeError),
-        }
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 }
 
@@ -304,17 +323,19 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         unimplemented!()
     }
 
-    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value, JaclDeError>
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, JaclDeError>
     where
         V: Visitor<'de>,
     {
-        unimplemented!();
+        let s = self.parse_string()?;
+        visitor.visit_str(&s)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, JaclDeError>
     where
         V: Visitor<'de>,
     {
+        println!("call");
         visitor.visit_string(self.parse_string()?)
     }
 
@@ -619,7 +640,7 @@ fn test_vec() {
 
 #[test]
 fn test_comments() {
-    let v: Vec<u8> = vec![1, 2, 3, 4];
+    let v: Vec<u8> = vec![1, 2, 3, 4, 5];
     assert_eq!(
         v,
         from_str::<Vec<u8>>(
@@ -629,10 +650,39 @@ fn test_comments() {
         2
         /* multiline
            comment */
-        3 
-        4
+        3
+        /* multiline
+        comment */ // comment    
+        // comment //comment //     comment
+        /* comment*/ /*comment */ 4 /*comment*/
+        5
         "
         )
         .unwrap()
     );
 }
+
+#[test]
+fn test_literals() {
+    // no whitespace
+    assert_eq!(true, from_str::<bool>("true").unwrap());
+    assert_eq!(1u8, from_str::<u8>("1").unwrap());
+    assert_eq!("test", from_str::<String>(r#""test""#).unwrap());
+
+    // with whitespace on back
+    assert_eq!(true, from_str::<bool>("true      ").unwrap());
+    assert_eq!(1u8, from_str::<u8>("1      ").unwrap());
+    assert_eq!("test", from_str::<String>(r#""test"   "#).unwrap());
+
+    // whitespace front and back
+    assert_eq!(true, from_str::<bool>("     true   ").unwrap());
+    assert_eq!(1u8, from_str::<u8>("   \n1   ").unwrap());
+    assert_eq!("test", from_str::<String>(r#"   "test"   ,,,,,,,,,,,"#).unwrap());
+
+    // multiline string literal
+    assert_eq!("test\ntest\n", from_str::<String>(r#"
+"test
+test
+""#).unwrap());
+}
+
