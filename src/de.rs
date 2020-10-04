@@ -100,7 +100,6 @@ pub fn from_str<'a, T>(s: &'a str) -> Result<T, JaclDeError>
 where
     T: Deserialize<'a>,
 {
-    println!("call from str");
     let mut deserializer = Deserializer::from_str(s);
     let t = T::deserialize(&mut deserializer)?;
     if deserializer.input.is_empty() {
@@ -139,7 +138,6 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_int<T: Integer + FromStr>(&mut self) -> Result<T, JaclDeError> {
-        println!("parse int {}", self.input);
         self.skip_non_tokens()?;
         let v = match parsing::literal::integer(self.input) {
             Ok((inp, i)) => {
@@ -147,7 +145,6 @@ impl<'de> Deserializer<'de> {
                 Ok(i)
             }
             Err(_) => {
-                println!("err");
                 Err(JaclDeError)
             }
         };
@@ -248,7 +245,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             't' | 'f' => self.deserialize_bool(visitor),
             '"' => self.deserialize_str(visitor),
             '-' | '0'..='9' => {
-                println!("here {}", self.input);
                 if let Ok(_) = parsing::literal::float::<f64>(self.input) {
                     self.deserialize_f64(visitor)
                 } else {
@@ -294,7 +290,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("visit i64");
         visitor.visit_i64(self.parse_int()?)
     }
 
@@ -337,7 +332,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("visit f64");
         visitor.visit_f64(self.parse_float()?)
     }
 

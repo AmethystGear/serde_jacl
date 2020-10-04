@@ -18,7 +18,6 @@ impl<'de> Deserialize<'de> for Number {
     where
         D: Deserializer<'de>,
     {
-        println!("call deser any");
         deserializer.deserialize_any(NumberVisitor)
     }
 }
@@ -57,7 +56,6 @@ impl<'de> Visitor<'de> for NumberVisitor {
     where
         E: de::Error,
     {
-        println!("visit_i64");
         Ok(Number::Integer(value))
     }
 
@@ -104,7 +102,6 @@ impl<'de> Visitor<'de> for NumberVisitor {
     where
         E: de::Error,
     {
-        println!("visit_f64");
         Ok(Number::Float(v))
     }
 }
@@ -112,6 +109,5 @@ impl<'de> Visitor<'de> for NumberVisitor {
 #[test]
 fn test_number() {
     assert_eq!(Number::Integer(1), from_str::<Number>("1").unwrap());
-    println!("moving to float");
     assert_eq!(Number::Float(1.75), from_str::<Number>("1.75").unwrap());
 }
