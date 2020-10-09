@@ -10,8 +10,8 @@ use nom::{
     IResult,
 };
 
-const ALPHA: &str = "qwertyuiopasdfghjklzxcvbnm_";
-const ALPHANUM: &str = "qwertyuiopasdfghjklzxcvbnm_1234567890";
+const ALPHA: &str = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM_";
+const ALPHANUM: &str = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM_1234567890";
 
 pub fn delimiter<'a>(input: &'a str) -> IResult<&'a str, char> {
     return one_of(":(){}[]")(input);
