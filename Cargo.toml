@@ -1,6 +1,6 @@
 [package]
 name = "serde_jacl"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["AmethystGear <shivenbhatt@outlook.com>"]
 edition = "2018"
 license = "MIT"
