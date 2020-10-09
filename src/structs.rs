@@ -1,30 +1,30 @@
-use std::error::Error;
 use num::{Float, Integer, NumCast, ToPrimitive};
 use serde::de::MapAccess;
 use serde::de::SeqAccess;
-use std::collections::HashMap;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer,
 };
+use std::collections::HashMap;
+use std::error::Error;
 use std::fmt;
 
 #[cfg(test)]
 use crate::de::from_str;
 
 #[derive(Debug)]
-enum Any <'a> {
+enum Any<'a> {
     Number(&'a Number),
     Literal(&'a Literal),
-    Value(&'a Value)
+    Value(&'a Value),
 }
 
-impl fmt::Display for Any <'_> {
+impl fmt::Display for Any<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Any::Number(n) => write!(f, "{}", n),
             Any::Literal(l) => write!(f, "{}", l),
-            Any::Value(v) => write!(f, "{}", v)
+            Any::Value(v) => write!(f, "{}", v),
         }
     }
 }
@@ -39,7 +39,7 @@ impl fmt::Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Number::Int(int) => write!(f, "Int({})", int),
-            Number::Flt(flt) => write!(f, "Flt({})", flt)
+            Number::Flt(flt) => write!(f, "Flt({})", flt),
         }
     }
 }
@@ -56,38 +56,42 @@ impl fmt::Display for NumCastErr {
 }
 
 #[derive(Debug)]
-pub struct InvalidAsErr <'a> {
-    original : Any<'a>,
-    attempted_type_convert : String
+pub struct InvalidAsErr<'a> {
+    original: Any<'a>,
+    attempted_type_convert: String,
 }
 
-impl  <'a> InvalidAsErr <'a> {
-    fn new (original : Any<'a>, attempted_type_convert : String) -> Self {
+impl<'a> InvalidAsErr<'a> {
+    fn new(original: Any<'a>, attempted_type_convert: String) -> Self {
         Self {
             original,
-            attempted_type_convert
+            attempted_type_convert,
         }
     }
 }
 
-impl Error for InvalidAsErr <'_> {}
+impl Error for InvalidAsErr<'_> {}
 
-impl fmt::Display for InvalidAsErr <'_> {
+impl fmt::Display for InvalidAsErr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "attempted to convert {} to {}", self.original, self.attempted_type_convert)
+        write!(
+            f,
+            "attempted to convert {} to {}",
+            self.original, self.attempted_type_convert
+        )
     }
 }
 
 impl Number {
-    pub fn from_int <T: Integer + ToPrimitive> (i : T) -> Result<Self, NumCastErr> {
+    pub fn from_int<T: Integer + ToPrimitive>(i: T) -> Result<Self, NumCastErr> {
         Ok(Self::Int(NumCast::from(i).ok_or(NumCastErr)?))
     }
 
-    pub fn from_float <T: Float> (f : T) -> Result<Self, NumCastErr> {
+    pub fn from_float<T: Float>(f: T) -> Result<Self, NumCastErr> {
         Ok(Self::Flt(NumCast::from(f).ok_or(NumCastErr)?))
     }
 
-    fn get_err(&self, convert_type : &str) -> InvalidAsErr {
+    fn get_err(&self, convert_type: &str) -> InvalidAsErr {
         InvalidAsErr::new(Any::Number(self), convert_type.to_string())
     }
 
@@ -145,7 +149,7 @@ impl<'de> Visitor<'de> for NumberVisitor {
 pub enum Literal {
     Number(Number),
     String(String),
-    Bool(bool)
+    Bool(bool),
 }
 
 impl fmt::Display for Literal {
@@ -153,29 +157,29 @@ impl fmt::Display for Literal {
         match self {
             Literal::Number(num) => write!(f, "Number({})", num),
             Literal::String(s) => write!(f, "String({})", s),
-            Literal::Bool(b) => write!(f, "Bool({})", b)
+            Literal::Bool(b) => write!(f, "Bool({})", b),
         }
     }
 }
 
 impl Literal {
-    pub fn from_string<S: Into<String>>(s : S) -> Self {
+    pub fn from_string<S: Into<String>>(s: S) -> Self {
         Self::String(s.into())
     }
 
-    pub fn from_bool(b : bool) -> Self {
+    pub fn from_bool(b: bool) -> Self {
         Self::Bool(b)
     }
 
-    pub fn from_int<T : Integer + ToPrimitive>(i : T) -> Result<Self, NumCastErr> {
+    pub fn from_int<T: Integer + ToPrimitive>(i: T) -> Result<Self, NumCastErr> {
         Ok(Self::Number(Number::from_int(i)?))
     }
 
-    pub fn from_flt<T : Float>(f : T) -> Result<Self, NumCastErr> {
+    pub fn from_flt<T: Float>(f: T) -> Result<Self, NumCastErr> {
         Ok(Self::Number(Number::from_float(f)?))
     }
 
-    fn get_err(&self, convert_type : &str) -> InvalidAsErr {
+    fn get_err(&self, convert_type: &str) -> InvalidAsErr {
         InvalidAsErr::new(Any::Literal(self), convert_type.to_string())
     }
 
@@ -270,35 +274,33 @@ impl<'de> Visitor<'de> for LiteralVisitor {
 pub enum Value {
     Literal(Literal),
     Map(HashMap<String, Value>),
-    Seq(Vec<Value>)
+    Seq(Vec<Value>),
 }
-
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Literal(lit) => write!(f, "Literal({})", lit),
             Value::Map(map) => write!(f, "Map({:?})", map),
-            Value::Seq(seq) => write!(f, "Seq({:?})", seq)
+            Value::Seq(seq) => write!(f, "Seq({:?})", seq),
         }
     }
 }
 
-
 impl Value {
-    pub fn from_string<S: Into<String>>(s : S) -> Self {
+    pub fn from_string<S: Into<String>>(s: S) -> Self {
         Self::Literal(Literal::String(s.into()))
     }
 
-    pub fn from_bool(b : bool) -> Self {
+    pub fn from_bool(b: bool) -> Self {
         Self::Literal(Literal::Bool(b))
     }
 
-    pub fn from_int<T : Integer + ToPrimitive>(i : T) -> Result<Self, NumCastErr> {
+    pub fn from_int<T: Integer + ToPrimitive>(i: T) -> Result<Self, NumCastErr> {
         Ok(Self::Literal(Literal::Number(Number::from_int(i)?)))
     }
 
-    pub fn from_flt<T : Float>(f : T) -> Result<Self, NumCastErr> {
+    pub fn from_flt<T: Float>(f: T) -> Result<Self, NumCastErr> {
         Ok(Self::Literal(Literal::Number(Number::from_float(f)?)))
     }
 
@@ -310,7 +312,7 @@ impl Value {
         Self::Seq(seq)
     }
 
-    fn get_err(&self, convert_type : &str) -> InvalidAsErr {
+    fn get_err(&self, convert_type: &str) -> InvalidAsErr {
         InvalidAsErr::new(Any::Value(&self), convert_type.to_string())
     }
 
@@ -374,7 +376,7 @@ impl<'de> Deserialize<'de> for Value {
 
 struct ValueVisitor;
 
-impl<'de> Visitor <'de> for ValueVisitor {
+impl<'de> Visitor<'de> for ValueVisitor {
     type Value = Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -433,7 +435,7 @@ impl<'de> Visitor <'de> for ValueVisitor {
     {
         let mut m = HashMap::new();
         while let Some((key, value)) = map.next_entry()? {
-           m.insert(key, value);
+            m.insert(key, value);
         }
         Ok(Value::Map(m))
     }
@@ -469,4 +471,3 @@ fn test_literal() {
     assert_eq!(*s.as_string().unwrap(), "hello world");
     assert_eq!(*b.as_bool().unwrap(), true);
 }
-
