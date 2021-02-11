@@ -268,10 +268,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             't' | 'f' => self.deserialize_bool(visitor),
             '"' => self.deserialize_str(visitor),
             '-' | '0'..='9' => {
-                if let Ok(_) = parsing::literal::float::<f64>(self.input) {
-                    self.deserialize_f64(visitor)
-                } else {
-                    self.deserialize_i64(visitor)
+                match parsing::literal::integer::<i64>(self.input) {
+                    Ok(res) => match res.0.chars().next() {
+                        Some('.') => self.deserialize_f64(visitor),
+                        _ => self.deserialize_i64(visitor)
+                    }
+                    Err(_) => Err(JaclDeError::new(self))
                 }
             }
             '[' => self.deserialize_seq(visitor),
