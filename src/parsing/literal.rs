@@ -42,7 +42,8 @@ pub fn float<'a, T: Float + FromStr>(input: &'a str) -> IResult<&'a str, T> {
                 integer::<i64>,
                 complete::char('.'),
                 opt(integer::<i64>),
-            ))),
+            ))), // Case four: 42
+            recognize(integer::<i64>)
         )),
         |out: &str| T::from_str(out),
     )(input)
