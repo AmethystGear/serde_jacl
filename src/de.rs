@@ -17,11 +17,42 @@ enum DataType {
 }
 
 #[derive(Debug)]
-pub struct JaclDeError;
+pub struct JaclDeError {
+    col : usize,
+    line : usize
+}
+
+impl JaclDeError {
+    pub fn new (d: &Deserializer) -> Self {
+        let index = d.begin.rfind(d.input).expect("There's a bug in the parser!");
+
+        let mut curr = 0;
+        let mut col = 0;
+        let mut line = 1;
+
+        for c in d.begin.chars() {
+            if curr == index {
+                break;
+            }
+            if c == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+            curr += 1
+        }
+
+        JaclDeError {
+            col, line
+        }
+    }
+}
 
 impl Display for JaclDeError {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unreachable!();
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "err at line: {} col: {}", self.line, self.col)?;
+        Ok(())
     }
 }
 
@@ -37,46 +68,39 @@ impl de::Error for JaclDeError {
 }
 
 pub struct Deserializer<'de> {
+    begin: &'de str,
     pre: Option<char>,
     input: &'de str,
     post: Option<char>,
 }
 
+impl <'de> Deserializer<'de> {
+    pub fn new (pre : Option<char>, data : &'de str, post : Option<char>) -> Self {
+        Deserializer {
+            pre,
+            post,
+            begin: data,
+            input: data
+        }
+    }
+}
+
 impl<'de> Deserializer<'de> {
     pub fn from_str(input: &'de str) -> Self {
-        let mut d = Deserializer {
-            pre: None,
-            input,
-            post: None,
-        };
+        // handling implicit cases for []: arrays {}: maps (): structs
+        let mut d = Deserializer::new(None, input, None);
         if d.try_parse_literal() {
             if d.try_parse_literal() {
-                return Deserializer {
-                    pre: Some('['),
-                    input,
-                    post: Some(']'),
-                };
+                return Deserializer::new(Some('['), input, Some(']'));
             } else if let Ok(delim) = d.parse_delim() {
                 if delim == ':' {
-                    return Deserializer {
-                        pre: Some('{'),
-                        input,
-                        post: Some('}'),
-                    };
+                    return Deserializer::new(Some('{'), input, Some('}'));
                 }
             }
         } else if let Ok(_) = d.parse_identifier() {
-            return Deserializer {
-                pre: Some('('),
-                input,
-                post: Some(')'),
-            };
+            return Deserializer::new(Some('('), input, Some(')'));
         }
-        return Deserializer {
-            pre: None,
-            input,
-            post: None,
-        };
+        return Deserializer::new(None, input, None);
     }
 
     fn try_parse_literal(&mut self) -> bool {
@@ -105,14 +129,14 @@ where
     if deserializer.input.is_empty() {
         Ok(t)
     } else {
-        Err(JaclDeError)
+        Err(JaclDeError::new(&deserializer))
     }
 }
 
 impl<'de> Deserializer<'de> {
     fn skip_non_tokens(&mut self) -> Result<(), JaclDeError> {
         if self.pre.is_some() {
-            return Err(JaclDeError);
+            unreachable!("There's a bug in the parser! This should never happen! If pre hasn't been consumed, we shouldn't be skipping tokens...")
         }
         self.input = many0(alt((
             parsing::comment::multiline_comment,
@@ -131,7 +155,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(b)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -144,7 +168,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(i)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -157,7 +181,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(f)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -171,9 +195,9 @@ impl<'de> Deserializer<'de> {
                     self.input = inp;
                     Ok(s)
                 }
-                Err(_) => Err(JaclDeError),
+                Err(_) => Err(JaclDeError::new(self)),
             },
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -190,7 +214,7 @@ impl<'de> Deserializer<'de> {
                 self.post = None;
                 return Ok(c);
             } else {
-                return Err(JaclDeError);
+                return Err(JaclDeError::new(self));
             }
         }
         let v = match parsing::delimiter(self.input) {
@@ -198,7 +222,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(c)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -211,7 +235,7 @@ impl<'de> Deserializer<'de> {
                 self.input = inp;
                 Ok(s)
             }
-            Err(_) => Err(JaclDeError),
+            Err(_) => Err(JaclDeError::new(self)),
         };
         self.skip_non_tokens()?;
         return v;
@@ -227,7 +251,7 @@ impl<'de> Deserializer<'de> {
         if let Some(post) = self.post {
             return Ok(post);
         }
-        return Err(JaclDeError);
+        return Err(JaclDeError::new(self));
     }
 }
 
@@ -253,7 +277,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             '[' => self.deserialize_seq(visitor),
             '{' => self.deserialize_map(visitor),
             '(' => self.deserialize_struct("", &[""], visitor),
-            _ => Err(JaclDeError),
+            _ => Err(JaclDeError::new(self)),
         }
     }
 
@@ -392,7 +416,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             self.input = &self.input["null".len()..];
             visitor.visit_unit()
         } else {
-            Err(JaclDeError)
+            Err(JaclDeError::new(self))
         }
     }
 
@@ -425,7 +449,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         if self.parse_delim()? == '[' {
             return visitor.visit_seq(Separated::new(&mut self, DataType::SEQ));
         } else {
-            Err(JaclDeError)
+            Err(JaclDeError::new(self))
         }
     }
 
@@ -465,7 +489,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         if self.parse_delim()? == '{' {
             return visitor.visit_map(Separated::new(&mut self, DataType::HASHMAP));
         } else {
-            Err(JaclDeError)
+            Err(JaclDeError::new(self))
         }
     }
 
@@ -487,7 +511,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         if self.parse_delim()? == '(' {
             return visitor.visit_map(Separated::new(&mut self, DataType::STRUCT));
         } else {
-            Err(JaclDeError)
+            Err(JaclDeError::new(self))
         }
     }
 
@@ -560,7 +584,7 @@ impl<'de, 'a> SeqAccess<'de> for Separated<'a, 'de> {
             if val == ']' {
                 return Ok(None);
             } else {
-                return Err(JaclDeError);
+                return Err(JaclDeError::new(self.de));
             }
         }
         seed.deserialize(&mut *self.de).map(Some)
@@ -582,7 +606,7 @@ impl<'de, 'a> MapAccess<'de> for Separated<'a, 'de> {
             {
                 return Ok(None);
             } else {
-                return Err(JaclDeError);
+                return Err(JaclDeError::new(self.de));
             }
         }
         seed.deserialize(&mut *self.de).map(Some)
@@ -596,10 +620,10 @@ impl<'de, 'a> MapAccess<'de> for Separated<'a, 'de> {
             if val == ':' {
                 return seed.deserialize(&mut *self.de);
             } else {
-                return Err(JaclDeError);
+                return Err(JaclDeError::new(self.de));
             }
         } else {
-            return Err(JaclDeError);
+            return Err(JaclDeError::new(self.de));
         }
     }
 }
@@ -718,4 +742,11 @@ test
         )
         .unwrap()
     );
+}
+
+#[test]
+fn test_err() {
+    let val : JaclDeError = from_str::<Vec<usize>>("[1 2 3] abc").expect_err("invalid jacl didn't return error?");
+    assert_eq!(1, val.line);
+    assert_eq!(8, val.col);
 }
