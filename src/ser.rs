@@ -11,19 +11,20 @@ pub struct Serializer {
 pub struct JaclSerError;
 
 impl Display for JaclSerError {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unreachable!();
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "can't parse data")?;
+        Ok(())
     }
 }
 
 impl error::Error for JaclSerError {}
 
 impl ser::Error for JaclSerError {
-    fn custom<T>(_: T) -> Self
+    fn custom<T>(f: T) -> Self
     where
         T: std::fmt::Display,
     {
-        unreachable!();
+        JaclSerError
     }
 }
 
