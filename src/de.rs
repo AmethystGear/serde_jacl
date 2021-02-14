@@ -262,7 +262,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        println!("deserialize_any");
         self.skip_non_tokens().unwrap_or(());
         match self.next_char()? {
             'n' => self.deserialize_unit(visitor),
@@ -450,7 +449,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         if self.parse_delim()? == '[' {
-            println!("brrr");
             return visitor.visit_seq(Separated::new(&mut self, DataType::SEQ));
         } else {
             Err(JaclDeError::new(self))
