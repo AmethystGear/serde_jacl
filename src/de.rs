@@ -262,6 +262,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        println!("deserialize_any");
         self.skip_non_tokens().unwrap_or(());
         match self.next_char()? {
             'n' => self.deserialize_unit(visitor),
@@ -449,6 +450,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         if self.parse_delim()? == '[' {
+            println!("brrr");
             return visitor.visit_seq(Separated::new(&mut self, DataType::SEQ));
         } else {
             Err(JaclDeError::new(self))
@@ -582,14 +584,12 @@ impl<'de, 'a> SeqAccess<'de> for Separated<'a, 'de> {
     where
         T: DeserializeSeed<'de>,
     {
-        if let Ok(val) = self.de.parse_delim() {
-            if val == ']' {
-                return Ok(None);
-            } else {
-                return Err(JaclDeError::new(self.de));
-            }
+        if self.de.next_char()? == ']' {
+            self.de.parse_delim()?;
+            Ok(None)
+        } else {
+            seed.deserialize(&mut *self.de).map(Some)
         }
-        seed.deserialize(&mut *self.de).map(Some)
     }
 }
 
@@ -683,6 +683,17 @@ fn test_vec() {
     assert_eq!(
         v,
         from_str::<Vec<String>>(r#" "hello"  "world"     "#).unwrap()
+    );
+
+    #[derive(Deserialize, PartialEq, Debug)]
+    struct Test {
+        int: u32,
+    }
+
+    let v: Vec<Test> = vec![Test{ int: 1}, Test {int : 2}];
+    assert_eq!(
+        v,
+        from_str::<Vec<Test>>(r#" [(int : 1), (int : 2)]     "#).unwrap()
     );
 }
 

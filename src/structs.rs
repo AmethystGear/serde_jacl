@@ -425,7 +425,9 @@ impl<'de> Visitor<'de> for ValueVisitor {
         A: SeqAccess<'de>,
     {
         let mut vec = Vec::new();
+        println!("here");
         while let Some(elem) = seq.next_element()? {
+
             vec.push(elem);
         }
         Ok(Value::Seq(vec))
