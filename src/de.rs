@@ -1,12 +1,11 @@
-use std::{error, fmt::Display, str::FromStr};
+use std::fmt;
+use std::{error, fmt::{Debug, Display}, str::FromStr};
 
 use crate::parsing;
 use nom::{branch::alt, multi::many0};
 use num::{Float, Integer};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
-
-#[cfg(test)]
 use std::collections::HashMap;
 
 #[derive(Eq, PartialEq)]
@@ -16,15 +15,18 @@ enum DataType {
     SEQ,
 }
 
-#[derive(Debug)]
 pub struct JaclDeError {
-    col : usize,
-    line : usize
+    col: usize,
+    line: usize,
+    line_str: String,
 }
 
 impl JaclDeError {
-    pub fn new (d: &Deserializer) -> Self {
-        let index = d.begin.rfind(d.input).expect("There's a bug in the parser!");
+    pub fn new(d: &Deserializer) -> Self {
+        let index = d
+            .begin
+            .rfind(d.input)
+            .expect("There's a bug in the parser!");
 
         let mut curr = 0;
         let mut col = 0;
@@ -43,15 +45,40 @@ impl JaclDeError {
             curr += 1
         }
 
-        JaclDeError {
-            col, line
+        let mut curr = 0;
+        let mut line_str = "".to_string();
+        for c in d.begin.chars() {
+            if curr >= index - col {
+                line_str = format!("{}{}", line_str, c);
+                if c == '\n' {
+                    break;
+                }
+            }
+            curr += 1
         }
+
+        JaclDeError {
+            col,
+            line,
+            line_str,
+        }
+    }
+}
+
+impl Debug for JaclDeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
 impl Display for JaclDeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "err at line: {} col: {}", self.line, self.col)?;
+        let marker_str = format!("{}^\n", "-".repeat(self.col));
+        write!(
+            f,
+            "error at line: {} col: {}\n{}\n{}",
+            self.line, self.col, self.line_str, marker_str
+        )?;
         Ok(())
     }
 }
@@ -74,13 +101,13 @@ pub struct Deserializer<'de> {
     post: Option<char>,
 }
 
-impl <'de> Deserializer<'de> {
-    pub fn new (pre : Option<char>, data : &'de str, post : Option<char>) -> Self {
+impl<'de> Deserializer<'de> {
+    pub fn new(pre: Option<char>, data: &'de str, post: Option<char>) -> Self {
         Deserializer {
             pre,
             post,
             begin: data,
-            input: data
+            input: data,
         }
     }
 }
@@ -116,6 +143,9 @@ impl<'de> Deserializer<'de> {
         if let Ok(_) = self.parse_string() {
             return true;
         }
+        if let Ok(_) = self.parse_null() {
+            return true;
+        }
         return false;
     }
 }
@@ -136,7 +166,7 @@ where
 impl<'de> Deserializer<'de> {
     fn skip_non_tokens(&mut self) -> Result<(), JaclDeError> {
         if self.pre.is_some() {
-            unreachable!("There's a bug in the parser! This should never happen! If pre hasn't been consumed, we shouldn't be skipping tokens...")
+            unreachable!("There's a bug in the parser! This should never happen! If pre hasn't been consumed, we shouldn't be skipping tokens... pre = {:?}", self.pre);
         }
         self.input = many0(alt((
             parsing::comment::multiline_comment,
@@ -146,6 +176,19 @@ impl<'de> Deserializer<'de> {
         .unwrap_or((self.input, vec![]))
         .0;
         return Ok(());
+    }
+
+    fn parse_null(&mut self) -> Result<(), JaclDeError> {
+        self.skip_non_tokens()?;
+        let v = match parsing::literal::null(self.input) {
+            Ok((inp, b)) => {
+                self.input = inp;
+                Ok(b)
+            }
+            Err(_) => Err(JaclDeError::new(self)),
+        };
+        self.skip_non_tokens()?;
+        return v;
     }
 
     fn parse_bool(&mut self) -> Result<bool, JaclDeError> {
@@ -267,15 +310,13 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             'n' => self.deserialize_unit(visitor),
             't' | 'f' => self.deserialize_bool(visitor),
             '"' => self.deserialize_str(visitor),
-            '-' | '0'..='9' => {
-                match parsing::literal::integer::<i64>(self.input) {
-                    Ok(res) => match res.0.chars().next() {
-                        Some('.') => self.deserialize_f64(visitor),
-                        _ => self.deserialize_i64(visitor)
-                    }
-                    Err(_) => Err(JaclDeError::new(self))
-                }
-            }
+            '-' | '0'..='9' => match parsing::literal::integer::<i64>(self.input) {
+                Ok(res) => match res.0.chars().next() {
+                    Some('.') => self.deserialize_f64(visitor),
+                    _ => self.deserialize_i64(visitor),
+                },
+                Err(_) => Err(JaclDeError::new(self)),
+            },
             '[' => self.deserialize_seq(visitor),
             '{' => self.deserialize_map(visitor),
             '(' => self.deserialize_struct("", &[""], visitor),
@@ -559,6 +600,92 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
+impl<'de> Deserialize<'de> for Value {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ValueVisitor;
+
+        impl<'de> Visitor<'de> for ValueVisitor {
+            type Value = Value;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("any valid JACL value")
+            }
+            fn visit_bool<E>(self, value: bool) -> Result<Value, E> {
+                Ok(Value::Bool(value))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Value, E> {
+                Ok(Value::Int(value))
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<Value, E> {
+                Ok(Value::Int(value as i64))
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Value, E> {
+                Ok(Value::Float(value))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_string(String::from(value))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Value, E> {
+                Ok(Value::String(value))
+            }
+
+            #[inline]
+            fn visit_none<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Value, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Deserialize::deserialize(deserializer)
+            }
+            fn visit_unit<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_seq<V>(self, mut visitor: V) -> Result<Value, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let mut vec = Vec::new();
+
+                while let Ok(Some(elem)) = visitor.next_element() {
+                    vec.push(elem);
+                }
+
+                Ok(Value::Array(vec))
+            }
+
+            fn visit_map<V>(self, mut visitor: V) -> Result<Value, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut map = HashMap::new();
+
+                while let Ok(Some((key, value))) = visitor.next_entry() {
+                    map.insert(key, value);
+                }
+
+                Ok(Value::Map(map))
+            }
+        }
+
+        deserializer.deserialize_any(ValueVisitor)
+    }
+}
+
 // In order to handle commas correctly when deserializing a JSON array or map,
 // we need to track whether we are on the first element or past the first
 // element.
@@ -628,19 +755,33 @@ impl<'de, 'a> MapAccess<'de> for Separated<'a, 'de> {
     }
 }
 
+#[derive(Debug)]
+enum Value {
+    Null,
+    Bool(bool),
+    Float(f64),
+    Int(i64),
+    String(String),
+    Array(Vec<Value>),
+    Map(HashMap<String, Value>),
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 
-#[test]
-fn test_struct() {
-    #[derive(Deserialize, PartialEq, Debug)]
-    struct Test {
-        int: u32,
-        vec: Vec<String>,
-        map: HashMap<String, Test>,
-        underscore_test: u8,
-    }
+mod tests {
+    use super::*;
+    #[test]
+    fn test_struct() {
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Test {
+            int: u32,
+            vec: Vec<String>,
+            map: HashMap<String, Test>,
+            underscore_test: u8,
+        }
 
-    let j = r#"
+        let j = r#"
             (
                 int : 1
                 vec : ["hello","world",]
@@ -655,53 +796,53 @@ fn test_struct() {
                 }
                 underscore_test: 1
             )"#;
-    let vec = vec!["hello".to_string(), "world".to_string()];
-    let inner = Test {
-        int: 17,
-        vec: vec.clone(),
-        map: HashMap::new(),
-        underscore_test: 1,
-    };
-    let mut map = HashMap::new();
-    map.insert("hello".to_string(), inner);
-    let expected = Test {
-        int: 1,
-        vec: vec.clone(),
-        map,
-        underscore_test: 1,
-    };
-    assert_eq!(expected, from_str(j).unwrap());
-}
-
-#[test]
-fn test_vec() {
-    let v: Vec<u8> = vec![1, 2, 3, 4];
-    assert_eq!(v, from_str::<Vec<u8>>("1   2 3 4,").unwrap());
-    let v: Vec<String> = vec!["hello".to_string(), "world".to_string()];
-    assert_eq!(
-        v,
-        from_str::<Vec<String>>(r#" "hello"  "world"     "#).unwrap()
-    );
-
-    #[derive(Deserialize, PartialEq, Debug)]
-    struct Test {
-        int: u32,
+        let vec = vec!["hello".to_string(), "world".to_string()];
+        let inner = Test {
+            int: 17,
+            vec: vec.clone(),
+            map: HashMap::new(),
+            underscore_test: 1,
+        };
+        let mut map = HashMap::new();
+        map.insert("hello".to_string(), inner);
+        let expected = Test {
+            int: 1,
+            vec: vec.clone(),
+            map,
+            underscore_test: 1,
+        };
+        assert_eq!(expected, from_str(j).unwrap());
     }
 
-    let v: Vec<Test> = vec![Test{ int: 1}, Test {int : 2}];
-    assert_eq!(
-        v,
-        from_str::<Vec<Test>>(r#" [(int : 1), (int : 2)]     "#).unwrap()
-    );
-}
+    #[test]
+    fn test_vec() {
+        let v: Vec<u8> = vec![1, 2, 3, 4];
+        assert_eq!(v, from_str::<Vec<u8>>("1   2 3 4,").unwrap());
+        let v: Vec<String> = vec!["hello".to_string(), "world".to_string()];
+        assert_eq!(
+            v,
+            from_str::<Vec<String>>(r#" "hello"  "world"     "#).unwrap()
+        );
 
-#[test]
-fn test_comments() {
-    let v: Vec<u8> = vec![1, 2, 3, 4, 5];
-    assert_eq!(
-        v,
-        from_str::<Vec<u8>>(
-            "
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct Test {
+            int: u32,
+        }
+
+        let v: Vec<Test> = vec![Test { int: 1 }, Test { int: 2 }];
+        assert_eq!(
+            v,
+            from_str::<Vec<Test>>(r#" [(int : 1), (int : 2)]     "#).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_comments() {
+        let v: Vec<u8> = vec![1, 2, 3, 4, 5];
+        assert_eq!(
+            v,
+            from_str::<Vec<u8>>(
+                "
         // single line comment
         1
         2
@@ -714,50 +855,66 @@ fn test_comments() {
         /* comment*/ /*comment */ 4 /*comment*/
         5
         "
-        )
-        .unwrap()
-    );
-}
+            )
+            .unwrap()
+        );
+    }
 
-#[test]
-fn test_literals() {
-    // no whitespace
-    assert_eq!(true, from_str::<bool>("true").unwrap());
-    assert_eq!(1u8, from_str::<u8>("1").unwrap());
-    assert_eq!(1.0, from_str::<f64>("1.0").unwrap());
-    assert_eq!("test", from_str::<String>(r#""test""#).unwrap());
+    #[test]
+    fn test_literals() {
+        // no whitespace
+        assert_eq!(true, from_str::<bool>("true").unwrap());
+        assert_eq!(1u8, from_str::<u8>("1").unwrap());
+        assert_eq!(1.0, from_str::<f64>("1.0").unwrap());
+        assert_eq!("test", from_str::<String>(r#""test""#).unwrap());
 
-    // with whitespace on back
-    assert_eq!(true, from_str::<bool>("true      ").unwrap());
-    assert_eq!(1u8, from_str::<u8>("1      ").unwrap());
-    assert_eq!(1.0, from_str::<f64>("1.0      ").unwrap());
-    assert_eq!("test", from_str::<String>(r#""test"   "#).unwrap());
+        // with whitespace on back
+        assert_eq!(true, from_str::<bool>("true      ").unwrap());
+        assert_eq!(1u8, from_str::<u8>("1      ").unwrap());
+        assert_eq!(1.0, from_str::<f64>("1.0      ").unwrap());
+        assert_eq!("test", from_str::<String>(r#""test"   "#).unwrap());
 
-    // whitespace front and back
-    assert_eq!(true, from_str::<bool>("     true   ").unwrap());
-    assert_eq!(1.0, from_str::<f64>("   1.0  ").unwrap());
-    assert_eq!(1u8, from_str::<u8>("   \n1   ").unwrap());
-    assert_eq!(
-        "test",
-        from_str::<String>(r#"   "test"   ,,,,,,,,,,,"#).unwrap()
-    );
+        // whitespace front and back
+        assert_eq!(true, from_str::<bool>("     true   ").unwrap());
+        assert_eq!(1.0, from_str::<f64>("   1.0  ").unwrap());
+        assert_eq!(1u8, from_str::<u8>("   \n1   ").unwrap());
+        assert_eq!(
+            "test",
+            from_str::<String>(r#"   "test"   ,,,,,,,,,,,"#).unwrap()
+        );
 
-    // multiline string literal
-    assert_eq!(
-        "test\ntest\n",
-        from_str::<String>(
-            r#"
+        // multiline string literal
+        assert_eq!(
+            "test\ntest\n",
+            from_str::<String>(
+                r#"
 "test
 test
 ""#
-        )
-        .unwrap()
-    );
-}
+            )
+            .unwrap()
+        );
+    }
 
-#[test]
-fn test_err() {
-    let val : JaclDeError = from_str::<Vec<usize>>("[1 2 3] abc").expect_err("invalid jacl didn't return error?");
-    assert_eq!(1, val.line);
-    assert_eq!(8, val.col);
+    #[test]
+    fn test_err() {
+        let val: JaclDeError = from_str::<Vec<usize>>("[1 2 3]      abc")
+            .expect_err("invalid jacl didn't return error?");
+        assert_eq!(1, val.line);
+        assert_eq!(13, val.col);
+    }
+
+    #[test]
+    fn test_option() {
+        assert_eq!(Some(0), from_str::<Option<u32>>("0").unwrap());
+        assert_eq!(None, from_str::<Option<u32>>(" null").unwrap());
+    }
+
+    #[test]
+    fn test_value() {
+        from_str::<Value>(r#"{
+                "x" : null,  
+                "a" : "b  "
+        }"#).unwrap();
+    }
 }

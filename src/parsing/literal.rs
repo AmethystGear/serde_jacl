@@ -52,3 +52,7 @@ pub fn float<'a, T: Float + FromStr>(input: &'a str) -> IResult<&'a str, T> {
 pub fn boolean<'a>(input: &'a str) -> IResult<&'a str, bool> {
     alt((value(false, tag("false")), value(true, tag("true"))))(input)
 }
+
+pub fn null<'a>(input: &'a str) -> IResult<&'a str, ()> {
+    value((), tag("null"))(input)
+}
