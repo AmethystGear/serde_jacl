@@ -4,9 +4,8 @@ use std::{error, fmt::{Debug, Display}, str::FromStr};
 use crate::parsing;
 use nom::{branch::alt, multi::many0};
 use num::{Float, Integer};
-use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use serde::Deserialize;
-use std::collections::HashMap;
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor, DeserializeOwned};
+
 
 #[derive(Eq, PartialEq)]
 enum DataType {
@@ -150,11 +149,12 @@ impl<'de> Deserializer<'de> {
     }
 }
 
-pub fn from_str<'a, T>(s: &'a str) -> Result<T, JaclDeError>
+pub fn from_str<T>(s: impl Into<String>) -> Result<T, JaclDeError>
 where
-    T: Deserialize<'a>,
+    T: DeserializeOwned,
 {
-    let mut deserializer = Deserializer::from_str(s);
+    let s : String = s.into();
+    let mut deserializer = Deserializer::from_str(&s);
     let t = T::deserialize(&mut deserializer)?;
     if deserializer.input.is_empty() {
         Ok(t)
@@ -305,9 +305,11 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        self.skip_non_tokens().unwrap_or(());
+        if self.pre.is_none() {
+            self.skip_non_tokens().unwrap_or(());
+        }
         match self.next_char()? {
-            'n' => self.deserialize_unit(visitor),
+            'n' => self.deserialize_option(visitor),
             't' | 'f' => self.deserialize_bool(visitor),
             '"' => self.deserialize_str(visitor),
             '-' | '0'..='9' => match parsing::literal::integer::<i64>(self.input) {
@@ -454,13 +456,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        self.skip_non_tokens()?;
-        if self.input.starts_with("null") {
-            self.input = &self.input["null".len()..];
-            visitor.visit_unit()
-        } else {
-            Err(JaclDeError::new(self))
-        }
+        Err(JaclDeError::new(self))
+        
     }
 
     fn deserialize_unit_struct<V>(
@@ -471,7 +468,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_unit(visitor)
+        Err(JaclDeError::new(self))
     }
 
     fn deserialize_newtype_struct<V>(
@@ -482,7 +479,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_newtype_struct(self)
+        Err(JaclDeError::new(self))
     }
 
     fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value, JaclDeError>
@@ -600,91 +597,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-impl<'de> Deserialize<'de> for Value {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ValueVisitor;
-
-        impl<'de> Visitor<'de> for ValueVisitor {
-            type Value = Value;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("any valid JACL value")
-            }
-            fn visit_bool<E>(self, value: bool) -> Result<Value, E> {
-                Ok(Value::Bool(value))
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Value, E> {
-                Ok(Value::Int(value))
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<Value, E> {
-                Ok(Value::Int(value as i64))
-            }
-
-            fn visit_f64<E>(self, value: f64) -> Result<Value, E> {
-                Ok(Value::Float(value))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Value, E>
-            where
-                E: serde::de::Error,
-            {
-                self.visit_string(String::from(value))
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Value, E> {
-                Ok(Value::String(value))
-            }
-
-            #[inline]
-            fn visit_none<E>(self) -> Result<Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_some<D>(self, deserializer: D) -> Result<Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                Deserialize::deserialize(deserializer)
-            }
-            fn visit_unit<E>(self) -> Result<Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_seq<V>(self, mut visitor: V) -> Result<Value, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let mut vec = Vec::new();
-
-                while let Ok(Some(elem)) = visitor.next_element() {
-                    vec.push(elem);
-                }
-
-                Ok(Value::Array(vec))
-            }
-
-            fn visit_map<V>(self, mut visitor: V) -> Result<Value, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut map = HashMap::new();
-
-                while let Ok(Some((key, value))) = visitor.next_entry() {
-                    map.insert(key, value);
-                }
-
-                Ok(Value::Map(map))
-            }
-        }
-
-        deserializer.deserialize_any(ValueVisitor)
-    }
-}
 
 // In order to handle commas correctly when deserializing a JSON array or map,
 // we need to track whether we are on the first element or past the first
@@ -736,7 +648,11 @@ impl<'de, 'a> MapAccess<'de> for Separated<'a, 'de> {
                 return Err(JaclDeError::new(self.de));
             }
         }
-        seed.deserialize(&mut *self.de).map(Some)
+        let z = seed.deserialize(&mut *self.de);
+        match z {
+            Ok(z) => Ok(Some(z)),
+            Err(e) => Err(e),
+        }
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, JaclDeError>
@@ -753,24 +669,25 @@ impl<'de, 'a> MapAccess<'de> for Separated<'a, 'de> {
             return Err(JaclDeError::new(self.de));
         }
     }
+
+    fn size_hint(&self) -> Option<usize> {
+        match self.datatype {
+            DataType::STRUCT => Some(0),
+            DataType::HASHMAP => None,
+            DataType::SEQ => None,
+        }
+    }
 }
 
-#[derive(Debug)]
-enum Value {
-    Null,
-    Bool(bool),
-    Float(f64),
-    Int(i64),
-    String(String),
-    Array(Vec<Value>),
-    Map(HashMap<String, Value>),
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
 
 mod tests {
     use super::*;
+    use serde::Deserialize;
+    use std::collections::HashMap;
+
     #[test]
     fn test_struct() {
         #[derive(Deserialize, PartialEq, Debug)]
@@ -908,13 +825,5 @@ test
     fn test_option() {
         assert_eq!(Some(0), from_str::<Option<u32>>("0").unwrap());
         assert_eq!(None, from_str::<Option<u32>>(" null").unwrap());
-    }
-
-    #[test]
-    fn test_value() {
-        from_str::<Value>(r#"{
-                "x" : null,  
-                "a" : "b  "
-        }"#).unwrap();
     }
 }

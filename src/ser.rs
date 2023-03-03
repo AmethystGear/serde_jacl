@@ -131,9 +131,6 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self.serialize_str(&v.to_string())
     }
 
-    // This only works for strings that don't require escape sequences but you
-    // get the idea. For example it would emit invalid JSON if the input string
-    // contains a '"' character.
     fn serialize_str(self, v: &str) -> Result<(), JaclSerError> {
         self.output += "\"";
         self.output += &escape(v);
@@ -269,8 +266,12 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     // Maps are represented in JSON as `{ K: V, K: V, ... }`.
-    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, JaclSerError> {
-        self.output += "{";
+    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, JaclSerError> {
+        if len.is_none() {
+            self.output += "{";
+        } else {
+            self.output += "(";
+        }
         Ok(self)
     }
 
@@ -436,7 +437,7 @@ impl<'a> ser::SerializeMap for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        if !self.output.ends_with('{') {
+        if !self.output.ends_with('{') && !self.output.ends_with('(') {
             self.output += " ";
         }
         key.serialize(&mut **self)
